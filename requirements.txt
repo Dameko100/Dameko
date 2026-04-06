@@ -4,3 +4,4 @@ python-telegram-bot==20.7
 schedule==1.2.1
 python-dotenv==1.0.0
 aiohttp==3.9.1
+yt-dlp>=2024.1.1
