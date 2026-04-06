@@ -91,7 +91,7 @@ class TelegramNotifier:
                     market_line += f"\n  └ _{_md(m.odds_summary)}_"
                 if m.volume > 0:
                     vol_str = f"${m.volume:,.0f}"
-                    market_line += f" | Vol: {_md(vol_str)}"
+                    market_line += f" \\| Vol: {_md(vol_str)}"
                 lines.append(market_line)
         else:
             lines.append("")
@@ -112,7 +112,7 @@ class TelegramNotifier:
             if m.odds_summary:
                 line += f"\n   _{_md(m.odds_summary)}_"
             if m.volume > 0:
-                line += f" | 💧 ${m.volume:,.0f}"
+                line += f" \\| 💧 {_md(f'${m.volume:,.0f}')}"
             lines.append(line)
             lines.append("")
 
