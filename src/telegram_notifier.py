@@ -1,6 +1,6 @@
 """
 Telegram notifier: formats and sends news + Polymarket alerts via Bot API.
-Uses the synchronous requests-based approach for simplicity in a scheduled loop.
+Uses HTML parse mode (more reliable than MarkdownV2 for arbitrary content).
 """
 
 import requests
@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 
-# Category -> emoji mapping
 CATEGORY_EMOJI = {
     "finance": "💰",
     "technology": "💻",
@@ -24,6 +23,16 @@ CATEGORY_EMOJI = {
     "crypto": "₿",
     "general": "📰",
 }
+
+
+def _h(text: str) -> str:
+    """Escape text for Telegram HTML mode."""
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 
 class TelegramNotifier:
@@ -37,15 +46,15 @@ class TelegramNotifier:
     def _api_url(self, method: str) -> str:
         return TELEGRAM_API.format(token=self.bot_token, method=method)
 
-    def send_message(self, text: str, disable_preview: bool = False) -> bool:
-        """Send a raw Markdown message. Returns True on success."""
+    def send_message(self, text: str, disable_preview: bool = True) -> bool:
+        """Send an HTML-formatted message. Returns True on success."""
         try:
             resp = self.session.post(
                 self._api_url("sendMessage"),
                 json={
                     "chat_id": self.chat_id,
                     "text": text,
-                    "parse_mode": "MarkdownV2",
+                    "parse_mode": "HTML",
                     "disable_web_page_preview": disable_preview,
                 },
                 timeout=10,
@@ -60,59 +69,55 @@ class TelegramNotifier:
             return False
 
     def send_news_alert(self, article: Article, markets: List[Market]) -> bool:
-        """
-        Send a formatted alert for a news article with related Polymarket links.
-        """
+        """Send a formatted alert for a news article with related Polymarket links."""
         emoji = CATEGORY_EMOJI.get(article.category, "📰")
         category_label = article.category.replace("_", " ").title()
 
         lines = [
-            f"{emoji} *{_md(category_label)}*",
+            f"{emoji} <b>{_h(category_label)}</b>",
             "",
-            f"*{_md(article.title)}*",
+            f"<b>{_h(article.title)}</b>",
             "",
         ]
 
         if article.summary:
-            lines.append(f"_{_md(article.summary[:250])}_")
+            lines.append(f"<i>{_h(article.summary[:300])}</i>")
             lines.append("")
 
-        lines.append(f"🔗 [Leer noticia]({article.url})")
-        lines.append(f"📡 Fuente: {_md(article.source)}")
+        lines.append(f'🔗 <a href="{article.url}">Leer noticia</a>')
+        lines.append(f"📡 Fuente: {_h(article.source)}")
 
         if markets:
             lines.append("")
-            lines.append("─────────────────────────")
-            lines.append("📊 *Mercados relacionados en Polymarket:*")
+            lines.append("─────────────────────")
+            lines.append("📊 <b>Mercados en Polymarket:</b>")
             lines.append("")
             for m in markets[:4]:
-                market_line = f"• [{_md(m.question[:80])}]({m.url})"
+                market_line = f'• <a href="{m.url}">{_h(m.question[:90])}</a>'
                 if m.odds_summary:
-                    market_line += f"\n  └ _{_md(m.odds_summary)}_"
+                    market_line += f"\n  └ <i>{_h(m.odds_summary)}</i>"
                 if m.volume > 0:
-                    vol_str = f"${m.volume:,.0f}"
-                    market_line += f" \\| Vol: {_md(vol_str)}"
+                    market_line += f" | Vol: <b>${m.volume:,.0f}</b>"
                 lines.append(market_line)
         else:
             lines.append("")
-            lines.append("_No se encontraron mercados relacionados en Polymarket\\._")
+            lines.append("<i>Sin mercados relacionados en Polymarket.</i>")
 
-        text = "\n".join(lines)
-        return self.send_message(text)
+        return self.send_message("\n".join(lines))
 
     def send_digest(self, markets: List[Market], title: str = "Mercados Trending") -> bool:
         """Send a digest of trending Polymarket markets."""
         lines = [
-            f"🔥 *{_md(title)}*",
-            f"_Top mercados activos en Polymarket_",
+            f"🔥 <b>{_h(title)}</b>",
+            "<i>Top mercados activos en Polymarket</i>",
             "",
         ]
         for i, m in enumerate(markets[:8], 1):
-            line = f"{i}\\. [{_md(m.question[:70])}]({m.url})"
+            line = f'{i}. <a href="{m.url}">{_h(m.question[:80])}</a>'
             if m.odds_summary:
-                line += f"\n   _{_md(m.odds_summary)}_"
+                line += f"\n   <i>{_h(m.odds_summary)}</i>"
             if m.volume > 0:
-                line += f" \\| 💧 {_md(f'${m.volume:,.0f}')}"
+                line += f" | 💧 <b>${m.volume:,.0f}</b>"
             lines.append(line)
             lines.append("")
 
@@ -121,11 +126,11 @@ class TelegramNotifier:
     def send_startup_message(self) -> bool:
         """Announce bot is running."""
         text = (
-            "🚀 *Dameko News Bot iniciado*\n\n"
+            "🚀 <b>Dameko News Bot iniciado</b>\n\n"
             "Monitoreando noticias de:\n"
             "💰 Finanzas · 💻 Tecnología · 🏛️ Política\n"
             "⚔️ Conflictos · 🤖 IA · ₿ Crypto · 🌍 Mundo\n\n"
-            "Recibirás alertas con mercados de Polymarket relacionados\\."
+            "Recibirás alertas con mercados de Polymarket relacionados."
         )
         return self.send_message(text)
 
@@ -143,15 +148,3 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"Telegram connection test error: {e}")
             return False
-
-
-def _md(text: str) -> str:
-    """Escape special characters for Telegram MarkdownV2."""
-    special = r"\_*[]()~`>#+-=|{}.!"
-    result = ""
-    for char in str(text):
-        if char in special:
-            result += f"\\{char}"
-        else:
-            result += char
-    return result
